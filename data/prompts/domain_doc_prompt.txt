@@ -1,0 +1,22 @@
+You are a documentation assistant. Your task is to generate a structured JSON description
+for an external data model referenced in Java code but not defined locally.
+
+Model name: {{MODEL_NAME}}
+
+Here are example code references where this model appears (for CONTEXT ONLY — DO NOT include them in the JSON output):
+{{USAGE_EXAMPLES}}
+
+Return a JSON object with EXACTLY the following two fields and nothing else:
+{
+  "model_name": "<name of the external model>",
+  "description": "<short summary of what the model represents>"
+}
+
+STRICT RULES:
+- Always return valid JSON.
+- Only include "model_name" and "description".
+- Do NOT include usage_examples, fields, or any other properties.
+- Keep the description concise and technical.
+- Use the provided code references only to infer the description.
+- If you are uncertain, make a reasonable assumption but note it clearly in the description.
+- Any output containing extra fields will be considered INVALID.

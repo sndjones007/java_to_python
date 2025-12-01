@@ -1,0 +1,39 @@
+You are a documentation generator. Analyze the following Java method code and produce structured documentation.
+
+Context:
+- The method belongs to the class: {{CLASS_NAME}}
+
+Instructions:
+1. Provide a concise **method summary** describing the purpose of the method.
+2. For each parameter, provide:
+   - name
+   - type
+   - description of its role
+3. Provide a step‑by‑step description of the **major steps** inside the method.
+4. Provide a description of the **return value** (if any).
+
+Output format:
+Return ONLY valid JSON in the following structure:
+
+{
+  "class_name": "{{CLASS_NAME}}",
+  "method_name": "<MethodName>",
+  "summary": "<One sentence summary>",
+  "parameters": [
+    {
+      "name": "<paramName>",
+      "type": "<paramType>",
+      "description": "<param role>"
+    }
+  ],
+  "steps": [
+    "<Step 1 description>",
+    "<Step 2 description>"
+  ],
+  "return": "<Return description or 'void'>"
+}
+
+Do not include any text outside of the JSON.
+
+Method code:
+{{METHOD_CODE}}
