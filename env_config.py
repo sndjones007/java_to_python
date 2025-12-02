@@ -27,9 +27,7 @@ class EnvConfig:
     AZURE_OPENAI_API_KEY: str = os.getenv("AZURE_OPENAI_API_KEY")
     AZURE_OPENAI_DEPLOYMENT: str = os.getenv("AZURE_OPENAI_DEPLOYMENT")
     AZURE_OPENAI_API_VERSION: str = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-15-preview")
-
-    # OpenAI fallback
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY")
+    AZURE_MODEL: str = os.getenv("AZURE_MODEL")
 
     # Output folders
     OUTPUT_DIR: str = os.getenv("OUTPUT_DIR", "output")
