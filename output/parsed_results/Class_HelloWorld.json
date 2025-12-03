@@ -1,0 +1,61 @@
+{
+    "jtype": "class",
+    "class_name": "HelloWorld",
+    "class_kind": "class",
+    "modifiers": [
+        "public"
+    ],
+    "attributes": [],
+    "methods": [
+        {
+            "jtype": "method",
+            "method_name": "main",
+            "return_type": null,
+            "modifiers": [
+                "public",
+                "static"
+            ],
+            "parameters": [
+                {
+                    "jtype": "parameter",
+                    "name": "args",
+                    "type": "String",
+                    "start_line": 5,
+                    "end_line": 5
+                }
+            ],
+            "start_line": 5,
+            "end_line": 9
+        },
+        {
+            "jtype": "method",
+            "method_name": "addNumbers",
+            "return_type": "int",
+            "modifiers": [
+                "public",
+                "static"
+            ],
+            "parameters": [
+                {
+                    "jtype": "parameter",
+                    "name": "a",
+                    "type": "int",
+                    "start_line": 12,
+                    "end_line": 12
+                },
+                {
+                    "jtype": "parameter",
+                    "name": "b",
+                    "type": "int",
+                    "start_line": 12,
+                    "end_line": 12
+                }
+            ],
+            "start_line": 12,
+            "end_line": 14
+        }
+    ],
+    "inner_classes": [],
+    "start_line": 2,
+    "end_line": 15
+}

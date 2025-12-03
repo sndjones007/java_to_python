@@ -1,0 +1,11 @@
+{
+  "class_name": "HelloWorld",
+  "method_name": "main",
+  "doc_type": "Method",
+  "python_code": {
+    "class_name": "HelloWorld",
+    "method_or_field_name": "",
+    "python_code": "def main(args):\n    print('Hello, World!')\n    result = addNumbers(5, 7)\n    print(result)",
+    "explanation": "This method takes an array of command-line arguments as input and prints a greeting message to the console. It then calls the addNumbers() method with two integer parameters (5 and 7) and stores the result in a variable called 'result'. Finally, it prints the sum of 5 and 7 to the console."
+  }
+}

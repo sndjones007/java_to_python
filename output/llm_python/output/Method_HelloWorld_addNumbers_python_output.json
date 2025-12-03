@@ -1,0 +1,11 @@
+{
+  "class_name": "HelloWorld",
+  "method_name": "addNumbers",
+  "doc_type": "Method",
+  "python_code": {
+    "class_name": "HelloWorld",
+    "method_or_field_name": "",
+    "python_code": "def addNumbers(a, b):\n    return a + b\n",
+    "explanation": "This method takes in two integers and returns their sum."
+  }
+}

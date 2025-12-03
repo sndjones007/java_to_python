@@ -1,6 +1,7 @@
 # domain_doc_generator.py
 import os
 import json
+import gc
 from external_model_analyzer import ExternalModelAnalyzer
 from llm_server import llm_chat
 from env_config import EnvConfig
@@ -56,26 +57,49 @@ class DomainDocGenerator:
 
     def run_prompt(self, model_name: str) -> DomainDoc:
         """
-        Build prompt, send to LLM, and parse JSON output into a DomainDoc.
+        Run the LLM prompt for a given external model and return a DomainDoc.
+        Safer parsing of LLM output and attempts to free large temporary buffers
+        as soon as possible to reduce peak memory usage.
         """
+
         prompt, usage_examples = self.build_prompt_for_model(model_name)
 
         messages = [
             {"role": "system", "content": "You are a helpful documentation assistant."},
             {"role": "user", "content": prompt},
         ]
+
+        # Call the LLM
         output = llm_chat(messages)
 
+        # Parse safely and free large temporaries quickly
         try:
             data = json.loads(output)
-        except json.JSONDecodeError:
-            raise RuntimeError("LLM did not return valid JSON.")
+        except json.JSONDecodeError as e:
+            snippet = (output or "")[:1000]
+            raise RuntimeError(f"LLM did not return valid JSON. Snippet: {snippet}") from e
+        finally:
+            # Attempt to free the raw LLM response immediately
+            try:
+                del output
+            except Exception:
+                pass
+            gc.collect()
 
-        return DomainDoc(
+        # Build DomainDoc from parsed JSON, then release parsed JSON
+        doc = DomainDoc(
             model_name=data.get("model_name", model_name),
             description=data.get("description", ""),
             usage_examples=usage_examples,
         )
+
+        try:
+            del data
+        except Exception:
+            pass
+        gc.collect()
+
+        return doc
 
     def run_all(self) -> list:
         docs = []

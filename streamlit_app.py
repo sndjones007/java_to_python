@@ -1,21 +1,23 @@
 import uuid
 import streamlit as st
-from typing import Dict, Any
+from java_parser_javalang import JavaParser
 from external_model_analyzer import ExternalModelAnalyzer
 
 st.set_page_config(layout="wide", page_title="Java AST Explorer")
 
-try:
-    from java_parser_javalang import JavaParser
-except ImportError:
-    st.error("Error: Could not import JavaParser.")
-    class JavaParser:
-        def __init__(self, source): pass
-        def parse(self): return {"error": "Parser not available."}
-        @property
-        def lines(self): return []
+# --- Cached Helpers (run once, reused across reruns) ---
+@st.cache_resource
+def get_method_doc_generator(java_source: str):
+    """Cache generator instance keyed by source code."""
+    from method_doc_generator import MethodDocGenerator
+    return MethodDocGenerator(java_source)
 
-# --- Helpers ---
+@st.cache_resource
+def get_domain_doc_generator(parsed_data: dict, java_source: str):
+    """Cache domain generator instance."""
+    from domain_doc_generator import DomainDocGenerator
+    return DomainDocGenerator(parsed_data, java_source)
+
 def extract_raw_code_snippet(source_lines, start_line, end_line):
     if start_line and end_line and start_line <= end_line:
         return "\n".join(source_lines[start_line - 1:end_line])
@@ -27,6 +29,11 @@ def parse_java_source(java_source: str):
     parsed = parser.parse()
     lines = getattr(parser, "lines", [])
     return parsed, lines
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_analyze(parsed_results: dict, source_text: str) -> dict:
+    analyzer = ExternalModelAnalyzer(parsed_results, source_text)
+    return analyzer.analyze()
 
 def display_ast_tree_node(data, header="Parsed Data", depth=0, max_depth=2):
     """Display AST nodes with limited recursion for responsiveness, with icons."""
@@ -52,7 +59,8 @@ def display_ast_tree_node(data, header="Parsed Data", depth=0, max_depth=2):
             if data.get("start_line") and data.get("end_line"):
                 raw_code = extract_raw_code_snippet(source_lines, data["start_line"], data["end_line"])
                 if raw_code:
-                    st.expander("📄 Raw Code Snippet").code(raw_code, language="java")
+                    with st.expander("📄 Raw Code Snippet"):
+                        st.code(raw_code, language="java")
     elif isinstance(data, list):
         for item in data[:50]:
             display_ast_tree_node(item, header=header, depth=depth, max_depth=max_depth)
@@ -85,6 +93,8 @@ with tab_parse_java:
             parsed_data, source_lines = parse_java_source(java_source)
         st.session_state['parsed_data'] = parsed_data
         st.session_state['source_lines'] = source_lines
+        # Clear cached generators on new file upload
+        st.cache_resource.clear()
 
     parsed_data = st.session_state.get('parsed_data')
     if parsed_data:
@@ -97,16 +107,29 @@ with tab_parse_java:
                     if isinstance(value, (list, dict)):
                         display_ast_tree_node(value, header=f"🏷️ {key.title()}")
 
+            # External models: do a quick analysis WITHOUT source code to avoid collecting raw snippets.
             with st.expander("📦 External Data Models Referenced", expanded=False):
-                analyzer = ExternalModelAnalyzer(parsed_data, "\n".join(st.session_state['source_lines']))
-                with st.spinner("Analyzing external models... ⏳"):
-                    external_models_usages = analyzer.analyze()
-                if external_models_usages:
-                    for model, usages in external_models_usages.items():
+                quick_analyzer = ExternalModelAnalyzer(parsed_data, source_code="")
+                quick_usages = quick_analyzer.analyze()
+                if quick_usages:
+                    for model, usages in quick_usages.items():
                         with st.expander(f"📦 {model}", expanded=False):
-                            for u in usages:
-                                for rc in u.get("raw_code", [])[:10]:
-                                    st.code(f"{rc['line']}  // line {rc['start_line']}", language="java")
+                            st.write(f"Usages: {len(usages)}")
+                            flag_key = f"show_snippets_{model}"
+                            if flag_key not in st.session_state:
+                                st.session_state[flag_key] = False
+
+                            if st.button("Show code snippets", key=f"show_snippets_btn_{model}"):
+                                st.session_state[flag_key] = True
+
+                            if st.session_state.get(flag_key):
+                                full_usages = cached_analyze(parsed_data, "\n".join(st.session_state['source_lines']))
+                                model_usages = full_usages.get(model, [])
+                                if not model_usages:
+                                    st.info("No code snippets found.")
+                                for u in model_usages:
+                                    for rc in u.get("raw_code", [])[:10]:
+                                        st.code(f"{rc['line']}  // line {rc['start_line']}", language="java")
                 else:
                     st.info("No external models found.")
 
@@ -116,12 +139,17 @@ with tab_create_doc:
     if not st.session_state.get('parsed_data'):
         st.info("Upload and parse a Java file first.")
     else:
-        from method_doc_generator import MethodDocGenerator
-        java_source = "\n".join(st.session_state['source_lines'])
-        with st.spinner("Collecting methods... ⏳"):
-            generator = MethodDocGenerator(java_source)
-            methods = generator.list_methods()
-
+        # Lazy init: only build methods list once, store in session
+        methods_key = "create_doc_methods_cache"
+        if methods_key not in st.session_state:
+            java_source = "\n".join(st.session_state['source_lines'])
+            generator = get_method_doc_generator(java_source)
+            st.session_state[methods_key] = generator.list_methods()
+            st.session_state["create_doc_generator"] = generator
+        
+        methods = st.session_state[methods_key]
+        generator = st.session_state["create_doc_generator"]
+        
         run_all = st.button("▶️ Run All Methods")
         if run_all:
             total_chunks = sum(len(generator.build_prompts_for_method(m["class_index"], m["method_index"])) for m in methods)
@@ -139,7 +167,13 @@ with tab_create_doc:
 
         for m in methods[:20]:
             st.markdown(f"### 🛠️ {m['class_name']}.{m['method_name']}")
-            prompts = generator.build_prompts_for_method(m["class_index"], m["method_index"])
+            prompts_key = f"prompts_{m['class_name']}_{m['method_name']}"
+            # only build prompts when user asks to see them
+            if prompts_key not in st.session_state:
+                if st.button("Show prompts", key=f"show_prompts_btn_{m['class_name']}_{m['method_name']}"):
+                    st.session_state[prompts_key] = generator.build_prompts_for_method(m["class_index"], m["method_index"])
+
+            prompts = st.session_state.get(prompts_key, [])
             for idx, prompt in enumerate(prompts):
                 with st.expander(f"Chunk {idx+1}"):
                     st.code(prompt, language="text")
@@ -162,10 +196,16 @@ with tab_external_doc:
     if not st.session_state.get('parsed_data'):
         st.info("Upload and parse a Java file first.")
     else:
-        from domain_doc_generator import DomainDocGenerator
-        java_source = "\n".join(st.session_state['source_lines'])
-        generator = DomainDocGenerator(st.session_state['parsed_data'], java_source)
-        models = generator.external_models
+        # Lazy init: only build models list once, store in session
+        models_key = "external_doc_models_cache"
+        if models_key not in st.session_state:
+            java_source = "\n".join(st.session_state['source_lines'])
+            generator = get_domain_doc_generator(st.session_state['parsed_data'], java_source)
+            st.session_state[models_key] = generator.external_models
+            st.session_state["domain_doc_generator"] = generator
+        
+        models = st.session_state[models_key]
+        generator = st.session_state["domain_doc_generator"]
 
         run_all = st.button("▶️ Run All Models")
         if run_all:
@@ -180,17 +220,26 @@ with tab_external_doc:
             st.success("✅ Completed all models!")
 
         for model in models[:20]:
-            prompt, usage_examples = generator.build_prompt_for_model(model)
+            prompt_key = f"prompt_{model}"
+            # Defer prompt build until user clicks to view
+            if prompt_key not in st.session_state:
+                if st.button("Show prompt", key=f"show_prompt_btn_{model}_{uuid.uuid4()}"):
+                    st.session_state[prompt_key] = generator.build_prompt_for_model(model)
+            
             with st.expander(f"📦 Model: {model}", expanded=False):
-                for ex in usage_examples[:10]:
-                    st.code(ex, language="java")
-                st.code(prompt, language="text")
+                if prompt_key in st.session_state:
+                    prompt, usage_examples = st.session_state[prompt_key]
+                    for ex in usage_examples[:10]:
+                        st.code(ex, language="java")
+                    st.code(prompt, language="text")
+                
                 run_model = st.button(f"Run {model}", key=f"run_{model}_{uuid.uuid4()}")
                 if run_model:
                     with st.spinner("Running model... ⏳"):
                         doc = generator.run_prompt(model)
                         st.session_state[f"doc_{model}"] = doc
                         st.success("✅ Finished")
+                
                 if f"doc_{model}" in st.session_state:
                     st.json(st.session_state[f"doc_{model}"].to_dict())
 

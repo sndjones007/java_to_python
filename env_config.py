@@ -42,3 +42,12 @@ class EnvConfig:
     TEST_JAVA_TO_PYTHON_FILE_LOC: str = os.getenv("TEST_JAVA_TO_PYTHON_FILE_LOC", "testdata/python")
     # Token limit
     LLM_TOKEN_LIMIT: int = int(os.getenv("LLM_TOKEN_LIMIT", "2000"))
+
+    TEST_JAVA_FILE: str = os.getenv("TEST_JAVA_FILE", "data/javadoc/Person.java")
+    OUTPUT_JAVA_PARSED_FOLDER: str = os.getenv("OUTPUT_JAVA_PARSED_FOLDER", "output/parsed_results")
+
+    LLM_DOC_INPUT_FOLDER: str = os.getenv("LLM_DOC_INPUT_FOLDER", "output/llm_doc/input")
+    LLM_DOC_OUTPUT_FOLDER: str = os.getenv("LLM_DOC_OUTPUT_FOLDER", "output/llm_doc/output")
+
+    LLM_PYTHON_INPUT_FOLDER: str = os.getenv("LLM_PYTHON_INPUT_FOLDER", "output/llm_python/input")
+    LLM_PYTHON_OUTPUT_FOLDER: str = os.getenv("LLM_PYTHON_OUTPUT_FOLDER", "output/llm_python/output")

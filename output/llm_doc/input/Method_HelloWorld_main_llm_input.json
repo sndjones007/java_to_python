@@ -1,0 +1,29 @@
+{
+  "class_name": "HelloWorld",
+  "class_idx": 0,
+  "method_name": "main",
+  "method_idx": 0,
+  "chunk_idx": 0,
+  "total_chunks": 1,
+  "method_details": {
+    "jtype": "method",
+    "method_name": "main",
+    "return_type": null,
+    "modifiers": [
+      "public",
+      "static"
+    ],
+    "parameters": [
+      {
+        "jtype": "parameter",
+        "name": "args",
+        "type": "String",
+        "start_line": 5,
+        "end_line": 5
+      }
+    ],
+    "start_line": 5,
+    "end_line": 9
+  },
+  "prompt": "You are a documentation generator. Analyze the following Java method code and produce structured documentation.\n\nContext:\n- The method belongs to the class: HelloWorld\n\nInstructions:\n1. Provide a concise **method summary** describing the purpose of the method.\n2. For each parameter, provide:\n   - name\n   - type\n   - description of its role\n3. Provide a step\u2011by\u2011step description of the **major steps** inside the method.\n4. Provide a description of the **return value** (if any).\n\nOutput format:\nReturn ONLY valid JSON in the following structure:\n\n{\n  \"class_name\": \"HelloWorld\",\n  \"method_name\": \"<MethodName>\",\n  \"summary\": \"<One sentence summary>\",\n  \"parameters\": [\n    {\n      \"name\": \"<paramName>\",\n      \"type\": \"<paramType>\",\n      \"description\": \"<param role>\"\n    }\n  ],\n  \"steps\": [\n    \"<Step 1 description>\",\n    \"<Step 2 description>\"\n  ],\n  \"return\": \"<Return description or 'void'>\"\n}\n\nDo not include any text outside of the JSON.\n\nMethod code:\n    public static void main(String[] args) {\n        System.out.println(\"Hello, Subhadeep!\");  // Prints a greeting\n        int result = addNumbers(5, 7);            // Calls helper method\n        System.out.println(\"5 + 7 = \" + result);  // Prints the result\n    }\n"
+}

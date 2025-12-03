@@ -1,0 +1,20 @@
+{
+    "jtype": "method",
+    "method_name": "main",
+    "return_type": null,
+    "modifiers": [
+        "public",
+        "static"
+    ],
+    "parameters": [
+        {
+            "jtype": "parameter",
+            "name": "args",
+            "type": "String",
+            "start_line": 5,
+            "end_line": 5
+        }
+    ],
+    "start_line": 5,
+    "end_line": 9
+}

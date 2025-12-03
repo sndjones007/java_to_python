@@ -1,15 +1,26 @@
 {
     "version": "0.2.0",
+    // "configurations": [
+    //     {
+    //         "name": "Python: Streamlit App",
+    //         "type": "debugpy",
+    //         "request": "launch",
+    //         "module": "streamlit",
+    //         "args": [
+    //             "run",
+    //             "streamlit_app.py" // CHANGE THIS if your main file name is different
+    //         ],
+    //         "justMyCode": true,
+    //         "cwd": "${workspaceFolder}"
+    //     }
+    // ]
     "configurations": [
         {
-            "name": "Python: Streamlit App",
+            "name": "Python: Dash App",
             "type": "debugpy",
             "request": "launch",
-            "module": "streamlit",
-            "args": [
-                "run",
-                "streamlit_app.py" // CHANGE THIS if your main file name is different
-            ],
+            "program": "${workspaceFolder}/dash_app1.py",
+            "console": "integratedTerminal",
             "justMyCode": true,
             "cwd": "${workspaceFolder}"
         }

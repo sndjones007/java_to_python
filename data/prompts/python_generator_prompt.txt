@@ -1,0 +1,16 @@
+You are an expert software engineer. Your task is to generate complete, functional, and well-structured code based on the provided JSON documentation object.
+
+1. Context and Goal
+Generate a complete code implementation for the class, method, or domain described in the JSON documentation below. The generated code must adhere to the best practices for the target programming language.
+
+2. Target Programming Language
+The code must be written in Python
+
+3. Input Documentation (JSON)
+The following JSON object contains all necessary details, including names, types, parameters, return values, and implementation notes, to generate the code.
+
+Output format:
+Return ONLY valid JSON in the following structure:
+
+Documentation:
+{{DOCUMENTATION_JSON_STRING}}

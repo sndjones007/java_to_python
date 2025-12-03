@@ -1,6 +1,6 @@
 import os
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Callable
 from env_config import EnvConfig
 from llm_server import llm_chat
 from java_parser_javalang import JavaParser
@@ -52,9 +52,19 @@ def load_prompt_template(filename: str) -> str:
 # MethodDocGenerator class
 # ----------------------------------------------------------------------
 class MethodDocGenerator:
-    def __init__(self, java_source: str):
-        self.parser = JavaParser(java_source)
-        self.results = self.parser.parse()
+    def __init__(self, parsed_results: Dict[str, Any], source_lines: List[str]):
+        """
+        Initialize MethodDocGenerator with parsed results and source lines.
+        
+        Args:
+            parsed_results: Dictionary containing parsed Java structure from JavaParser
+            source_lines: List of source code lines
+        """
+        self.results = parsed_results
+        self.source_lines = source_lines
+        # Instantiate the Chunker once for reuse across methods
+        self.chunker = MethodCodeChunker()
+        
         if "error" in self.results:
             raise RuntimeError(f"Parsing error: {self.results['error']}")
 
@@ -101,11 +111,9 @@ class MethodDocGenerator:
 
         start_line = method_info.get("start_line")
         end_line = method_info.get("end_line")
-        source_lines = self.parser.lines
-        raw_code = "\n".join(source_lines[start_line - 1:end_line])
+        raw_code = "\n".join(self.source_lines[start_line - 1:end_line])
 
-        chunker = MethodCodeChunker()
-        chunks = chunker.chunk(raw_code)
+        chunks = self.chunker.chunk(raw_code)
 
         template = load_prompt_template("method_doc_prompt.txt")
         prompts = [
@@ -138,11 +146,38 @@ class MethodDocGenerator:
             return_desc=data.get("return", ""),
         )
 
-    def run_all_prompts(self, prompts: List[str]) -> List[MethodDoc]:
+    def run_all_prompts(self, prompts: List[str], on_progress: Optional[Callable[[str], None]] = None) -> List[MethodDoc]:
         """
         Run all prompts sequentially and return a list of MethodDoc objects.
+        
+        Args:
+            prompts: List of prompt strings
+            on_progress: Optional callback function that receives status messages
+            
+        Returns:
+            List of MethodDoc objects
         """
         docs = []
-        for prompt in prompts:
-            docs.append(self.run_prompt(prompt))
+        for idx, prompt in enumerate(prompts):
+            try:
+                if on_progress:
+                    on_progress(f"Executing prompt {idx + 1}/{len(prompts)}...")
+                docs.append(self.run_prompt(prompt))
+                if on_progress:
+                    on_progress(f"✅ Prompt {idx + 1}/{len(prompts)} completed")
+            except Exception as e:
+                if on_progress:
+                    on_progress(f"❌ Error on prompt {idx + 1}: {str(e)}")
+                # Return error info instead of failing
+                error_doc = MethodDoc(
+                    class_name="",
+                    method_name="",
+                    return_type="",
+                    summary=f"❌ Error: {str(e)}",
+                    description=str(e),
+                    parameters="",
+                    returns="",
+                    raises=""
+                )
+                docs.append(error_doc)
         return docs

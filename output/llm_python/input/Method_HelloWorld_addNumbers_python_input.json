@@ -1,0 +1,28 @@
+{
+  "class_name": "HelloWorld",
+  "method_name": "addNumbers",
+  "doc_type": "Method",
+  "documentation": {
+    "class_name": "HelloWorld",
+    "method_name": "addNumbers",
+    "summary": "Adds two integers and returns the result.",
+    "parameters": [
+      {
+        "name": "a",
+        "type": "int",
+        "description": "The first integer to add."
+      },
+      {
+        "name": "b",
+        "type": "int",
+        "description": "The second integer to add."
+      }
+    ],
+    "steps": [
+      "Returns the sum of the two integers.",
+      "The method takes in two integers and returns their sum."
+    ],
+    "return": "int"
+  },
+  "prompt": "You are an expert software engineer. Your task is to generate complete, functional, and well-structured code based on the provided JSON documentation object.\n\n1. Context and Goal\nGenerate a complete code implementation for the class, method, or domain described in the JSON documentation below. The generated code must adhere to the best practices for the target programming language.\n\n2. Target Programming Language\nThe code must be written in Python\n\n3. Input Documentation (JSON)\nThe following JSON object contains all necessary details, including names, types, parameters, return values, and implementation notes, to generate the code.\n\nOutput format:\nReturn ONLY valid JSON in the following structure:\n\nDocumentation:\n{\n  \"class_name\": \"HelloWorld\",\n  \"method_name\": \"addNumbers\",\n  \"summary\": \"Adds two integers and returns the result.\",\n  \"parameters\": [\n    {\n      \"name\": \"a\",\n      \"type\": \"int\",\n      \"description\": \"The first integer to add.\"\n    },\n    {\n      \"name\": \"b\",\n      \"type\": \"int\",\n      \"description\": \"The second integer to add.\"\n    }\n  ],\n  \"steps\": [\n    \"Returns the sum of the two integers.\",\n    \"The method takes in two integers and returns their sum.\"\n  ],\n  \"return\": \"int\"\n}\n"
+}

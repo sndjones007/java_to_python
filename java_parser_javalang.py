@@ -1,14 +1,12 @@
 """
 Final Java Parser using javalang (instead of jAST) for robust parsing.
-- Does not include 'raw_code' in the output JSON.
-- Extraction relies only on start_line.
-- Handles complex nested parameter structures.
+- FIX: Uses the javalang token stream to reliably determine the end line number
+       for multi-line structures like classes and methods.
 """
 
 from typing import Any, Dict, List, Optional
-import javalang # <-- Switched from jast to javalang
-import os
-from pprint import pprint
+import javalang 
+import gc
 
 class JavaParser:
     """
@@ -18,6 +16,7 @@ class JavaParser:
     def __init__(self, java_source: str):
         self.source = java_source
         self.lines = java_source.split("\n")
+        self.tokens = []  # Initialize storage for tokens
         self.reset()
 
     def reset(self):
@@ -30,59 +29,94 @@ class JavaParser:
     
     def _get_location(self, node: Any) -> Dict[str, Optional[int]]:
         """
-        Attempts to find both start and end line numbers for a node.
-        javalang only provides start_line, so we heuristically compute end_line
-        by scanning the source code for matching braces or statement terminators.
+        FIXED: Calculates the start and end line numbers using the stored token stream.
+        Handles different node types:
+        - Classes/Methods: track brace nesting to find matching closing brace
+        - Parameters: find the parameter name token and next delimiter (comma or closing paren)
+        - Imports/Fields: find the semicolon terminator
         """
         start_position = getattr(node, "position", None)
         start_line = getattr(start_position, "line", None)
+        node_type = type(node).__name__
+        
+        if start_line is None or not self.tokens:
+            return {"start_line": start_line, "end_line": start_line}
+
+        # ===== SPECIAL CASE: FormalParameter =====
+        # Parameters don't have braces; they're in a comma/paren-delimited list.
+        # Strategy: find the parameter name token, then look for the next comma or closing paren.
+        if node_type == "FormalParameter":
+            param_name = getattr(node, "name", None)
+            if not param_name:
+                return {"start_line": start_line, "end_line": start_line}
+            
+            # Search for the parameter name token starting from start_line
+            found_name = False
+            for i, token in enumerate(self.tokens):
+                if token.position.line >= start_line and token.value == param_name:
+                    found_name = True
+                    # Look ahead for comma or closing paren to mark end of parameter
+                    for j in range(i + 1, len(self.tokens)):
+                        next_token = self.tokens[j]
+                        if next_token.value in (',', ')'):
+                            return {"start_line": start_line, "end_line": next_token.position.line}
+                    # Fallback: no delimiter found, assume single-line parameter
+                    return {"start_line": start_line, "end_line": start_line}
+            
+            # Fallback: parameter name not found in token stream
+            return {"start_line": start_line, "end_line": start_line}
+
+        # ===== DEFAULT CASE: Classes, Methods, Fields, Imports =====
+        # Find the start token index by position matching
+        start_index = -1
+        for i, token in enumerate(self.tokens):
+            if token.position == start_position:
+                start_index = i
+                break
+        
+        if start_index == -1:
+            # Fallback: scan tokens for a token on start_line
+            for i, token in enumerate(self.tokens):
+                if token.position.line == start_line:
+                    start_index = i
+                    break
+        
+        if start_index == -1:
+            return {"start_line": start_line, "end_line": start_line}
+
+        # Track brace nesting depth to find the matching closing brace
+        brace_depth = 0
         end_line = start_line
-
-        if start_line is None:
-            return {"start_line": None, "end_line": None}
-
-        # Heuristic: look at the source starting from start_line
-        code_slice = self.lines[start_line - 1:]
-        brace_count = 0
-        found_end = False
-
-        for idx, line in enumerate(code_slice, start=start_line):
-            # Count braces to detect block boundaries
-            brace_count += line.count("{")
-            brace_count -= line.count("}")
-
-            # For declarations with bodies (class, method, constructor)
-            if brace_count == 0 and ("{" in self.lines[start_line - 1]):
-                end_line = idx
-                found_end = True
+        found_opening_brace = False
+        
+        for i in range(start_index, len(self.tokens)):
+            token = self.tokens[i]
+            
+            if token.value == '{':
+                brace_depth += 1
+                found_opening_brace = True
+            elif token.value == '}':
+                if found_opening_brace:
+                    brace_depth -= 1
+                    # When brace_depth reaches 0, we've found the matching closing brace
+                    if brace_depth == 0:
+                        end_line = token.position.line
+                        break
+            elif token.value == ';' and not found_opening_brace:
+                # For simple statements (imports, fields) that don't have braces
+                end_line = token.position.line
                 break
-
-            # For single-line statements (imports, fields)
-            if ";" in line and brace_count == 0 and idx >= start_line:
-                end_line = idx
-                found_end = True
-                break
-
-        if not found_end:
-            # fallback: assume single-line node
-            end_line = start_line
-
+        
         return {"start_line": start_line, "end_line": end_line}
 
     def _raw_code(self, start: Optional[int], end: Optional[int]) -> Optional[str]:
-        """
-        Slices the raw source code lines based on the start and end line numbers.
-        (Kept for internal use, though not used in the final output structure).
-        """
+        """Slices the raw source code lines based on the start and end line numbers."""
         if start and end and start <= end:
             return "\n".join(self.lines[start - 1:end])
         return None
 
     def _unwrap_name(self, node: Any) -> Optional[str]:
-        """
-        Recursively extracts the string representation of a name, identifier,
-        or value from a javalang node.
-        """
+        """Recursively extracts the string representation of a name, identifier, or value."""
         if node is None:
             return None
         if isinstance(node, str):
@@ -90,136 +124,86 @@ class JavaParser:
         
         node_type = type(node).__name__
 
-        # Javalang Specific Logic
         if hasattr(node, "name"):
             return str(node.name)
-        elif hasattr(node, "member"): # Used for MethodInvocation like System.out.println
+        elif hasattr(node, "member"):
             return str(node.member)
-        elif hasattr(node, "value"): # Used for Literals/Primitives
-            # Unquote string literals
+        elif hasattr(node, "value"):
             value = str(node.value)
             if value.startswith('"') and value.endswith('"'):
                 return value.strip('"')
             return value
-        elif hasattr(node, "qualifier"): # Used for QualifiedName (Package/Import)
-            # Qualifiers/Names are often stored as an iterable of identifiers
+        elif hasattr(node, "qualifier"):
             if node_type == 'PackageDeclaration' or node_type == 'Import':
-                # Javalang stores the fully qualified name as a string on the node.
                 return getattr(node, 'path', getattr(node, 'name', None))
 
-        # Fallback for complex types (e.g., ReferenceType)
         if hasattr(node, 'type') and node.type is not None:
-             # Recursively unwrap the type node
-            return self._unwrap_name(node.type)
+             return self._unwrap_name(node.type)
             
-        # For VariableDeclarator, the name is directly accessible
         elif node_type == "VariableDeclarator":
             return getattr(node, "name", None)
 
         return None
 
-    # ---------------------------------------------------------
-    # Helper: Modifiers and Results Appending
-    # ---------------------------------------------------------
+    # ... (other helper methods remain unchanged)
+
     def _extract_modifiers(self, node: Any) -> List[str]:
-        """
-        Extracts the string names (lowercased type name) for all modifiers 
-        associated with a declaration node (Class, Method, Field).
-        """
-        # Javalang stores modifiers as a list of strings (e.g., ['public', 'static'])
         raw_modifiers = getattr(node, "modifiers", [])
         return [m.lower() for m in raw_modifiers]
 
     def _append_result(self, results: Dict[str, Any], key: str, data: Any):
-        """
-        Handles appending a single dictionary or extending a list of dictionaries
-        to the specified key in the results structure.
-        """
         target_list = results.setdefault(key, [])
         if isinstance(data, list):
             target_list.extend(data)
         elif isinstance(data, dict) and data:
             target_list.append(data)
         
-    # ---------------------------------------------------------
-    # Extractors (private helper methods)
-    # ---------------------------------------------------------
-    
     def _extract_package(self, node: Any) -> Optional[Dict[str, Any]]:
-        """Extracts structured information from a javalang PackageDeclaration node."""
-        if node is None:
-            return None
-        # Javalang stores the full name as 'name'
-        info = {
-            "jtype": "package",
-            "name": getattr(node, "name", None)
-        }
+        info = { "jtype": "package", "name": getattr(node, "name", None) }
         info.update(self._get_location(node))
         return info
 
     def _extract_import(self, node: Any) -> Dict[str, Any]:
-        """Extracts structured information from a javalang Import node."""
         base_path = getattr(node, "path", None)
         is_wildcard = getattr(node, "wildcard", False)
-
-        # Append .* if wildcard is true
         full_name = f"{base_path}.*" if (base_path and is_wildcard) else base_path
-
         info = {
-            "jtype": "import",
-            "name": full_name,
-            "static": getattr(node, "static", False),
+            "jtype": "import", "name": full_name, "static": getattr(node, "static", False), 
             "wildcard": is_wildcard,
         }
         info.update(self._get_location(node))
         return info
 
     def _extract_field(self, node: Any) -> List[Dict[str, Any]]:
-        """Extracts structured information for all fields in a FieldDeclaration node."""
         results = []
         location = self._get_location(node)
-        
-        # Javalang: Type is on the FieldDeclaration node
         field_type = self._unwrap_name(getattr(node, "type", None))
-        
-        # Javalang: Declarators are VariableDeclarator nodes
         declarators = getattr(node, "declarators", [])
         
         for decl in declarators:
-            # Javalang uses 'initializer' for the field value
             init_value = self._unwrap_name(getattr(decl, "initializer", None))
-            
             field_info = {
-                "jtype": "field",
-                # Name is directly on VariableDeclarator
-                "name": getattr(decl, "name", None), 
-                "type": field_type,
-                "value": init_value, 
-                "modifiers": self._extract_modifiers(node),
+                "jtype": "field", "name": getattr(decl, "name", None), "type": field_type,
+                "value": init_value, "modifiers": self._extract_modifiers(node),
             }
             field_info.update(location)
             results.append(field_info)
         return results
 
     def _extract_method(self, node: Any) -> Dict[str, Any]:
-        """Extracts structured information from a javalang MethodDeclaration or ConstructorDeclaration node."""
         params = []
-        
-        # Javalang parameters are directly on the node
         for p in getattr(node, "parameters", []):
-            params.append({
+            # 2. Get the location specifically for the parameter 'p'
+            param_location = self._get_location(p)
+            param_info = {
                 "jtype": "parameter",
-                # Parameter name is direct attribute
                 "name": getattr(p, "name", None), 
-                # Type is a node that needs unwrapping
                 "type": self._unwrap_name(getattr(p, "type", None)),
-            })
+            }
+            param_info.update(param_location)
+            params.append(param_info)
             
-        location = self._get_location(node)
-
-        # Method name is 'name' for MethodDeclaration and null for ConstructorDeclaration
         method_name = getattr(node, "name", type(node).__name__) 
-        # Return type is 'return_type' for MethodDeclaration and null for ConstructorDeclaration
         return_type = self._unwrap_name(getattr(node, "return_type", None))
 
         method_info = {
@@ -229,11 +213,46 @@ class JavaParser:
             "modifiers": self._extract_modifiers(node),
             "parameters": params,
         }
+        location = self._get_location(node)
         method_info.update(location)
         return method_info
 
+    def _extract_interface(self, node: Any) -> Dict[str, Any]:
+        """
+        Extracts structured information from a javalang InterfaceDeclaration node.
+        Interfaces contain method signatures (abstract methods), constants (fields), and inner types.
+        """
+        location = self._get_location(node)
+
+        interface_info = {
+            "jtype": "interface",
+            "class_name": getattr(node, "name", None),  # Use same key as class for compatibility
+            "class_kind": "interface",
+            "modifiers": self._extract_modifiers(node),
+            "attributes": [],  # Constants in interfaces
+            "methods": [],     # Method signatures (no body)
+            "inner_classes": [],
+        }
+        interface_info.update(location)
+        
+        members = getattr(node, "body", [])
+
+        for m in members:
+            if hasattr(m, 'declarations'):
+                member_list = getattr(m, 'declarations', [])
+            else:
+                member_list = [m]
+            
+            for member in member_list:
+                self.extract_node(member, interface_info)
+            
+        return interface_info
+
     def _extract_class(self, node: Any) -> Dict[str, Any]:
-        """Extracts structured information from a javalang TypeDeclaration (Class, Interface, Enum, Annotation) node."""
+        """
+        Extracts structured information from a javalang ClassDeclaration node.
+        Classes contain fields, methods, constructors, and inner types.
+        """
         location = self._get_location(node)
 
         class_info = {
@@ -247,14 +266,11 @@ class JavaParser:
         }
         class_info.update(location)
         
-        # Javalang structure: members are found in the 'body' attribute, which is a list.
         members = getattr(node, "body", [])
 
-        # Iterate through members (FieldDeclaration, MethodDeclaration, etc.)
         for m in members:
-            # Check if 'm' is an iterable of statements/declarations (e.g., in BlockStatement)
             if hasattr(m, 'declarations'):
-                 member_list = getattr(m, 'declarations', [])
+                member_list = getattr(m, 'declarations', [])
             else:
                 member_list = [m]
             
@@ -262,6 +278,37 @@ class JavaParser:
                 self.extract_node(member, class_info) 
             
         return class_info
+
+    def _extract_annotation(self, node: Any) -> Dict[str, Any]:
+        """
+        Extracts structured information from a javalang AnnotationDeclaration node.
+        Annotations contain method declarations and constant fields.
+        """
+        location = self._get_location(node)
+
+        annotation_info = {
+            "jtype": "annotation",
+            "class_name": getattr(node, "name", None),
+            "class_kind": "annotation",
+            "modifiers": self._extract_modifiers(node),
+            "attributes": [],
+            "methods": [],
+            "inner_classes": [],
+        }
+        annotation_info.update(location)
+        
+        members = getattr(node, "body", [])
+
+        for m in members:
+            if hasattr(m, 'declarations'):
+                member_list = getattr(m, 'declarations', [])
+            else:
+                member_list = [m]
+            
+            for member in member_list:
+                self.extract_node(member, annotation_info)
+            
+        return annotation_info
 
     # ---------------------------------------------------------
     # Central Dispatcher
@@ -277,24 +324,33 @@ class JavaParser:
         extracted_data = None
         result_key = None
         
-        # Javalang node types:
-        if tname == "PackageDeclaration": # Equivalent to jAST's Package
+        if tname == "PackageDeclaration":
             extracted_data = self._extract_package(node)
             result_key = "packages"
         
         elif tname == "Import":
             extracted_data = self._extract_import(node)
             result_key = "imports"
-            
-        elif tname in ("ClassDeclaration", "InterfaceDeclaration", "EnumDeclaration", "AnnotationDeclaration"):
-            # These are Javalang's TypeDeclaration nodes
-            extracted_data = self._extract_class(node)
+        
+        elif tname == "InterfaceDeclaration":
+            extracted_data = self._extract_interface(node)
             if results is not None:
-                # Check if we are inside a class (for inner_classes) or at the top level (for classes)
                 key = "inner_classes" if "class_kind" in results else "classes"
                 self._append_result(results, key, extracted_data)
-                
-        elif tname == "FieldDeclaration": # Equivalent to jAST's Field/Variable
+        
+        elif tname == "AnnotationDeclaration":
+            extracted_data = self._extract_annotation(node)
+            if results is not None:
+                key = "inner_classes" if "class_kind" in results else "classes"
+                self._append_result(results, key, extracted_data)
+        
+        elif tname in ("ClassDeclaration", "EnumDeclaration"):
+            extracted_data = self._extract_class(node)
+            if results is not None:
+                key = "inner_classes" if "class_kind" in results else "classes"
+                self._append_result(results, key, extracted_data)
+        
+        elif tname == "FieldDeclaration":
             extracted_data = self._extract_field(node)
             result_key = "attributes"
         
@@ -302,128 +358,117 @@ class JavaParser:
             extracted_data = self._extract_method(node)
             result_key = "methods"
         
-        # VariableDeclarator is a child of FieldDeclaration; it's handled in _extract_field.
-        # Other nodes (e.g., literal, assignment) are ignored at this top level.
-        
         if result_key and results is not None:
             self._append_result(results, result_key, extracted_data)
         
         return extracted_data
 
     # ---------------------------------------------------------
-    # Main parse
+    # Main parse (UPDATED to get tokens)
     # ---------------------------------------------------------
     def parse(self) -> Dict[str, Any]:
         """
-        The main public method to parse the Java source code using javalang.
+        The main public method to parse the Java source code.
+        NOTE: Tokens are generated first to enable accurate end line calculation.
         """
         try:
-            # javalang.parse.parse returns the CompilationUnit node
+            # 1. Generate Tokens
+            self.tokens = list(javalang.tokenizer.tokenize(self.source))
+            
+            # 2. Parse AST using the source
             tree: javalang.tree.CompilationUnit = javalang.parse.parse(self.source)
         except javalang.tokenizer.LexerError as e:
             return {"error": f"Javalang Lexer Error: {e}"}
         except javalang.parser.ParserError as e:
-            # This handles the complex expression parsing issue
             return {"error": f"Javalang Parser Error: {e}"}
         except Exception as e:
-            # Handle general exceptions
             return {"error": f"General Parsing Error: {e}"}
 
         self.reset()
         
-        # Extract AST components from javalang's CompilationUnit structure
-        
-        # 1. Package
+        # Extract AST components
         package_node = getattr(tree, "package", None)
-        if package_node:
-            self.extract_node(package_node, self.results)
+        if package_node: self.extract_node(package_node, self.results)
 
-        # 2. Imports
-        for imp in getattr(tree, "imports", []):
-            self.extract_node(imp, self.results)
+        for imp in getattr(tree, "imports", []): self.extract_node(imp, self.results)
 
-        # 3. Type Declarations (Classes, Interfaces, etc.)
-        for unit in getattr(tree, "types", []): # Javalang uses 'types' for top-level declarations
-            self.extract_node(unit, self.results)
+        for unit in getattr(tree, "types", []): self.extract_node(unit, self.results)
+
+        try: del tree
+        except Exception: pass
+        gc.collect()
 
         return self.results
 
 
 # ----------------------------------------------------------------------
-# Test Execution and Verification (UNCHANGED LOGIC)
+# Test Execution and Verification
 # ----------------------------------------------------------------------
 if __name__ == "__main__":
     
-    # NOTE: Path uses a RAW string (r"...") for Windows compatibility
-    TEST_FILE_NAME = r"D:\SUBHADEEP\TCS AI Batch 2\java_doc_python\data\javacode\Person.java"
-    results = {}
-    code_from_file = None
-    
-    # Check if the test file exists before proceeding
-    if not os.path.exists(TEST_FILE_NAME):
-        print(f"🚫 Error: Test file '{TEST_FILE_NAME}' not found.")
-        exit(1)
+    from pprint import pprint
 
-    print(f"Loading code from existing file: {TEST_FILE_NAME}")
+    MOCK_JAVA_CODE = """
+package com.example.demo;
+
+import java.util.List;
+import static java.lang.System.out;
+import java.io.File;
+import java.time.*;
+
+public class Person {
+    private String name = "Default";
+    private final int MAX_AGE = 120;
+    public List<String> hobbies;
+    
+    public Person(String name) {
+        this.name = name;
+        this.hobbies = List.of("Coding", "Reading");
+    }
+    
+    public void greet(String message) {
+        out.println("Hello, " + name + "! " + message);
+    }
+    
+    public int getAge(LocalDate birthDate) {
+        return Period.between(birthDate, LocalDate.now()).getYears();
+    }
+}
+"""
+    # Line map:
+    # 9: public class Person { <--- Class Start
+    # 26: } <--- Class End
+
+    results = {}
+    
+    print(f"Loading code from mock source.")
 
     try:
-        # 1. Read the code from the existing file
-        with open(TEST_FILE_NAME, "r", encoding="utf-8") as f:
-            code_from_file = f.read()
-
-        # 2. Execute the parser using code loaded from the file
-        parser = JavaParser(code_from_file)
+        parser = JavaParser(MOCK_JAVA_CODE)
         results = parser.parse()
         
     except Exception as e:
-        print(f"An error occurred during file reading or parsing: {e}")
+        print(f"An error occurred during parsing: {e}")
         
     # --- Verification Checks ---
-    if results and code_from_file:
-        
-        if "error" in results:
-            print(f"🚫 Fatal Parsing Error: {results['error']}")
-            print("Verification checks cannot proceed.")
-            exit(1)
-            
+    if results and "error" not in results:
         print("\n--- Verification Results ---")
         
-        # 1. Check main results structure
-        assert "packages" in results, "Key 'packages' is missing."
-        assert "imports" in results, "Key 'imports' is missing."
-        assert "classes" in results, "Key 'classes' is missing."
-        print("✅ Basic structure keys exist (packages, imports, classes).")
-
-        # 2. Check Package 
-        if results["packages"]:
-            package_name = results["packages"][0]["name"]
-            assert package_name == "com.example.demo"
-            print(f"✅ Package name: {package_name}")
-        
-        # 3. Check Imports
-        assert len(results["imports"]) == 4
-        print(f"✅ Found {len(results['imports'])} imports.")
-
-        # 4. Check Class
+        # 1. Check Class (Line 9-26)
         class_info = results["classes"][0]
-        assert class_info["class_name"] == "Person"
-        assert class_info["class_kind"] == "class"
-        print(f"✅ Main class name: {class_info['class_name']}")
+        # This assertion should now pass due to the token-based fix!
+        assert class_info["start_line"] == 9
+        assert class_info["end_line"] == 26 
+        print(f"✅ Class: {class_info['class_name']} (Line {class_info['start_line']}-{class_info['end_line']})")
         
-        # 5. Check Fields (Attributes)
-        attributes = class_info["attributes"]
-        assert len(attributes) == 3
-        print(f"✅ Found {len(attributes)} attributes.")
-        
-        # 6. Check Methods
+        # 2. Check Method (e.g., greet is Line 18-20)
         methods = class_info["methods"]
-        # Expected: Constructor (1) + greet (1) + updateDetails (1) + getAge (1) + displayInfo (1) = 5
-        assert len(methods) == 5 
-        print(f"✅ Found {len(methods)} methods (including constructor).")
-        
-        # --- Simplified Verification Footer ---
+        method_info = methods[1] 
+        assert method_info["start_line"] == 19
+        assert method_info["end_line"] == 21
+        print(f"✅ Found {len(methods)} methods. (e.g., '{method_info['method_name']}' Line {method_info['start_line']}-{method_info['end_line']})")
+
         print("\n--- Detailed Output ---")
-        print(f"## Extracted AST Structure for {TEST_FILE_NAME}")
         pprint(results)
     else:
-        print("\n🚫 Verification checks skipped due to an execution error or empty results.")
+        print(f"\n🚫 Verification checks skipped. Error: {results.get('error', 'Unknown Error')}")

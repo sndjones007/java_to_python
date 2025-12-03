@@ -1,0 +1,27 @@
+{
+    "jtype": "method",
+    "method_name": "addNumbers",
+    "return_type": "int",
+    "modifiers": [
+        "public",
+        "static"
+    ],
+    "parameters": [
+        {
+            "jtype": "parameter",
+            "name": "a",
+            "type": "int",
+            "start_line": 12,
+            "end_line": 12
+        },
+        {
+            "jtype": "parameter",
+            "name": "b",
+            "type": "int",
+            "start_line": 12,
+            "end_line": 12
+        }
+    ],
+    "start_line": 12,
+    "end_line": 14
+}

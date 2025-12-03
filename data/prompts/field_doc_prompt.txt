@@ -1,0 +1,33 @@
+You are a documentation generator. Analyze the following Java field declaration and produce structured documentation.
+
+Context:
+
+The field belongs to the class: {{CLASS_NAME}}
+
+Instructions:
+
+Provide a concise field summary describing the purpose of the attribute.
+Identify the data type and visibility (e.g., private, public).
+Identify all relevant modifiers (e.g., static, final).
+Describe the initialization of the field, including its default or initial value (if explicitly set).
+Describe the usage and role of the field within the class.
+
+Output format: Return ONLY valid JSON in the following structure:
+
+{
+  "class_name": "{{CLASS_NAME}}",
+  "field_name": "<FieldName>",
+  "summary": "<One sentence summary of the field's purpose>",
+  "type": "<DataType>",
+  "visibility": "<public/private/protected>",
+  "modifiers": [
+    "<Modifier1>",
+    "<Modifier2>"
+  ],
+  "initialization": "<Description of how/when the field is initialized, or 'Default value set in constructor/block'/'No explicit initialization'>",
+  "role": "<Description of the field's primary role and usage within the class (e.g., counter, cached result, dependency injection target)>"
+}
+
+Do not include any text outside of the JSON.
+
+Field code: {{FIELD_CODE}}
