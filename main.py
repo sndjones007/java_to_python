@@ -39,7 +39,7 @@ def cleanup_output_folders():
     print()
 
 
-def main(java_file: str, output_dir: str = "java_json_output", cleanup: bool = True):
+def main(java_file: str, output_dir: str = "java_json_output", cleanup: bool = True, skip_documentation: bool = False):
     """
     Main entry point: parse a Java file and generate Python code.
     
@@ -47,13 +47,14 @@ def main(java_file: str, output_dir: str = "java_json_output", cleanup: bool = T
     1. Clean up old output files (optional)
     2. Parse Java file
     3. Save parsed results
-    4. Generate LLM documentation input and output per method/field
+    4. Generate LLM documentation input and output per method/field (optional)
     5. Generate Python code from documentation
     
     Args:
         java_file: Path to Java file to parse
         output_dir: Output directory for parsed results
         cleanup: If True, clean up old output files before starting
+        skip_documentation: If True, skip LLM documentation generation (use existing docs)
     """
     # Step 0: Cleanup old files
     if cleanup:
@@ -93,12 +94,17 @@ def main(java_file: str, output_dir: str = "java_json_output", cleanup: bool = T
     saver = JavaResultSaver(output_dir=output_dir)
     saver.save_results(results, source_lines=source_lines)
 
-    # Step 4: Generate LLM documentation input and output per method/field
-    print("="*60)
-    print("📋 STEP 3: Generating LLM Documentation per Method/Field")
-    print("="*60 + "\n")
-    
-    #generate_llm_documentation(results, source_lines)
+    # Step 4: Generate LLM documentation input and output per method/field (optional)
+    if not skip_documentation:
+        print("="*60)
+        print("📋 STEP 3: Generating LLM Documentation per Method/Field")
+        print("="*60 + "\n")
+        
+        generate_llm_documentation(results, source_lines)
+    else:
+        print("\n" + "="*60)
+        print("⏭️  Skipping LLM Documentation Generation")
+        print("="*60 + "\n")
 
     # Step 5: Generate Python code from documentation
     print("="*60)
@@ -373,7 +379,7 @@ def generate_python_code():
     1. Read LLM documentation output from LLM_DOC_OUTPUT_FOLDER
     2. Build Python code generation prompts using CodeGenerationPromptGenerator
     3. Run prompts through LLM to get Python code
-    4. Save Python code to LLM_PYTHON_OUTPUT_FOLDER
+    4. Save Python code to LLM_PYTHON_OUTPUT_FOLDER (both JSON and .py files)
     """
     print("\n")
     
@@ -392,6 +398,7 @@ def generate_python_code():
     print(f"📁 Found {len(doc_files)} LLM documentation files\n")
     
     code_generator = CodeGenerationPromptGenerator()
+    successful_code_count = 0
     
     for doc_idx, doc_file in enumerate(doc_files):
         try:
@@ -460,7 +467,18 @@ def generate_python_code():
             # Convert to dict if it's an object
             python_code_dict = python_code_output.to_dict() if hasattr(python_code_output, 'to_dict') else python_code_output
             
-            # Save Python code output
+            # Extract actual Python code from the output
+            python_code_content = ""
+            if isinstance(python_code_dict, dict):
+                # Try common field names for code content
+                python_code_content = (python_code_dict.get("code", "") or 
+                                      python_code_dict.get("python_code", "") or 
+                                      python_code_dict.get("content", "") or
+                                      str(python_code_dict))
+            else:
+                python_code_content = str(python_code_dict)
+            
+            # Save Python code output as JSON
             python_output_file = os.path.join(
                 EnvConfig.LLM_PYTHON_OUTPUT_FOLDER,
                 f"{doc_type}_{class_name}_{method_or_field_name}_python_output.json"
@@ -476,17 +494,43 @@ def generate_python_code():
             with open(python_output_file, 'w', encoding='utf-8') as f:
                 json.dump(python_output_data, f, indent=2)
             
-            print(f"   ✅ Python code generated and saved\n")
+            print(f"   ✅ Python code JSON saved")
+            
+            # Save Python code as .py file
+            python_py_file = os.path.join(
+                EnvConfig.LLM_PYTHON_OUTPUT_FOLDER,
+                f"{doc_type}_{class_name}_{method_or_field_name}.py"
+            )
+            
+            with open(python_py_file, 'w', encoding='utf-8') as f:
+                # Add header comment
+                f.write(f"# Generated Python code for {doc_type} {class_name}.{method_or_field_name}\n")
+                f.write(f"# Auto-generated from Java code\n")
+                f.write(f"# Original class: {class_name}\n")
+                f.write(f"# Original {doc_type.lower()}: {method_or_field_name}\n\n")
+                
+                # Write the actual code
+                f.write(python_code_content)
+                f.write("\n")
+            
+            print(f"   ✅ Python code .py file saved\n")
+            successful_code_count += 1
             
         except Exception as e:
             print(f"   ❌ Error processing {doc_file}: {str(e)}\n")
     
     print("\n" + "="*60)
-    print("✅ Python code generation complete!")
+    print(f"✅ Python code generation complete!")
+    print(f"   Generated {successful_code_count}/{len(doc_files)} Python files successfully")
     print("="*60)
 
 
 if __name__ == "__main__":
     java_file = EnvConfig.TEST_JAVA_FILE
     output_dir = EnvConfig.OUTPUT_JAVA_PARSED_FOLDER
-    main(java_file, output_dir, cleanup=False)  # cleanup=True by default
+    
+    # Run with full pipeline
+    main(java_file, output_dir, cleanup=True, skip_documentation=False)
+    
+    # To skip documentation generation (use existing docs):
+    # main(java_file, output_dir, cleanup=False, skip_documentation=True)
